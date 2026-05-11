@@ -1,0 +1,5 @@
+error: unknown strategy `magic`; expected one of `option_string`, `config_value`, `option_config_value_deferred`
+ --> tests/compile_fail/unknown_strategy.rs:9:25
+  |
+9 |     #[config(strategy = magic)]
+  |                         ^^^^^

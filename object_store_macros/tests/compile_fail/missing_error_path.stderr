@@ -1,0 +1,9 @@
+error: missing required attribute `#[object_store(error_path = ...)]`
+ --> tests/compile_fail/missing_error_path.rs:4:1
+  |
+4 | / #[object_store(config_key = MyConfigKey)]
+5 | | struct MyOptions {
+6 | |     #[config(strategy = option_string)]
+7 | |     foo: Option<String>,
+8 | | }
+  | |_^

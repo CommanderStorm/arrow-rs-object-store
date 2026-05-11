@@ -54,17 +54,16 @@ pub(crate) mod parts;
 pub use http::*;
 
 use async_trait::async_trait;
+use object_store_macros::ObjectStoreConfig;
 use reqwest::header::{HeaderMap, HeaderValue};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(not(target_arch = "wasm32"))]
 use reqwest::{NoProxy, Proxy};
 
-use crate::config::{ConfigValue, fmt_duration};
+use crate::config::ConfigValue;
 use crate::path::Path;
 use crate::{GetOptions, Result};
 
@@ -77,195 +76,6 @@ fn map_client_error(e: reqwest::Error) -> super::Error {
 
 static DEFAULT_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
-/// Configuration keys for [`ClientOptions`]
-#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy, Deserialize, Serialize)]
-#[non_exhaustive]
-pub enum ClientConfigKey {
-    /// Allow non-TLS, i.e. non-HTTPS connections
-    ///
-    /// Supported keys:
-    /// - `allow_http`
-    AllowHttp,
-    /// Skip certificate validation on https connections.
-    ///
-    /// <div class="warning">
-    ///
-    /// **Warning**
-    ///
-    /// You should think very carefully before using this method. If
-    /// invalid certificates are trusted, *any* certificate for *any* site
-    /// will be trusted for use. This includes expired certificates. This
-    /// introduces significant vulnerabilities, and should only be used
-    /// as a last resort or for testing
-    ///
-    /// </div>
-    ///
-    /// Supported keys:
-    /// - `allow_invalid_certificates`
-    AllowInvalidCertificates,
-    /// Timeout for only the connect phase of a Client
-    ///
-    /// Supported keys:
-    /// - `connect_timeout`
-    ConnectTimeout,
-    /// default [`Content-Type`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Type) for uploads
-    ///
-    /// Supported keys:
-    /// - `default_content_type`
-    DefaultContentType,
-    /// Only use HTTP/1 connections
-    ///
-    /// Supported keys:
-    /// - `http1_only`
-    Http1Only,
-    /// Interval for HTTP/2 Ping frames should be sent to keep a connection alive.
-    ///
-    /// Supported keys:
-    /// - `http2_keep_alive_interval`
-    Http2KeepAliveInterval,
-    /// Timeout for receiving an acknowledgement of the keep-alive ping.
-    ///
-    /// Supported keys:
-    /// - `http2_keep_alive_timeout`
-    Http2KeepAliveTimeout,
-    /// Enable HTTP/2 keep alive pings for idle connections
-    ///
-    /// Supported keys:
-    /// - `http2_keep_alive_while_idle`
-    Http2KeepAliveWhileIdle,
-    /// Sets the maximum frame size to use for HTTP/2.
-    ///
-    /// Supported keys:
-    /// - `http2_max_frame_size`
-    Http2MaxFrameSize,
-    /// Only use HTTP/2 connections
-    ///
-    /// Supported keys:
-    /// - `http2_only`
-    Http2Only,
-    /// The pool max idle timeout
-    ///
-    /// This is the length of time an idle connection will be kept alive
-    ///
-    /// Supported keys:
-    /// - `pool_idle_timeout`
-    PoolIdleTimeout,
-    /// maximum number of idle connections per host
-    ///
-    /// Supported keys:
-    /// - `pool_max_idle_per_host`
-    PoolMaxIdlePerHost,
-    /// HTTP proxy to use for requests
-    ///
-    /// Supported keys:
-    /// - `proxy_url`
-    ProxyUrl,
-    /// PEM-formatted CA certificate for proxy connections
-    ///
-    /// Supported keys:
-    /// - `proxy_ca_certificate`
-    ProxyCaCertificate,
-    /// List of hosts that bypass proxy
-    ///
-    /// Supported keys:
-    /// - `proxy_excludes`
-    ProxyExcludes,
-    /// Randomize order addresses that the DNS resolution yields.
-    ///
-    /// This will spread the connections across more servers.
-    ///
-    /// <div class="warning">
-    ///
-    /// **Warning**
-    ///
-    /// This will override the DNS resolver configured by [`reqwest`].
-    ///
-    /// </div>
-    ///
-    /// Supported keys:
-    /// - `randomize_addresses`
-    RandomizeAddresses,
-    /// Read timeout
-    ///
-    /// The timeout applies to each read operation, and resets after a
-    /// successful read. This is useful for detecting stalled connections
-    /// when the size of the response is not known beforehand.
-    ///
-    /// Supported keys:
-    /// - `read_timeout`
-    ReadTimeout,
-    /// Request timeout
-    ///
-    /// The timeout is applied from when the request starts connecting until the
-    /// response body has finished
-    ///
-    /// Supported keys:
-    /// - `timeout`
-    Timeout,
-    /// User-Agent header to be used by this client
-    ///
-    /// Supported keys:
-    /// - `user_agent`
-    UserAgent,
-}
-
-impl AsRef<str> for ClientConfigKey {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::AllowHttp => "allow_http",
-            Self::AllowInvalidCertificates => "allow_invalid_certificates",
-            Self::ConnectTimeout => "connect_timeout",
-            Self::DefaultContentType => "default_content_type",
-            Self::Http1Only => "http1_only",
-            Self::Http2Only => "http2_only",
-            Self::Http2KeepAliveInterval => "http2_keep_alive_interval",
-            Self::Http2KeepAliveTimeout => "http2_keep_alive_timeout",
-            Self::Http2KeepAliveWhileIdle => "http2_keep_alive_while_idle",
-            Self::Http2MaxFrameSize => "http2_max_frame_size",
-            Self::PoolIdleTimeout => "pool_idle_timeout",
-            Self::PoolMaxIdlePerHost => "pool_max_idle_per_host",
-            Self::ProxyUrl => "proxy_url",
-            Self::ProxyCaCertificate => "proxy_ca_certificate",
-            Self::ProxyExcludes => "proxy_excludes",
-            Self::RandomizeAddresses => "randomize_addresses",
-            Self::ReadTimeout => "read_timeout",
-            Self::Timeout => "timeout",
-            Self::UserAgent => "user_agent",
-        }
-    }
-}
-
-impl FromStr for ClientConfigKey {
-    type Err = super::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "allow_http" => Ok(Self::AllowHttp),
-            "allow_invalid_certificates" => Ok(Self::AllowInvalidCertificates),
-            "connect_timeout" => Ok(Self::ConnectTimeout),
-            "default_content_type" => Ok(Self::DefaultContentType),
-            "http1_only" => Ok(Self::Http1Only),
-            "http2_only" => Ok(Self::Http2Only),
-            "http2_keep_alive_interval" => Ok(Self::Http2KeepAliveInterval),
-            "http2_keep_alive_timeout" => Ok(Self::Http2KeepAliveTimeout),
-            "http2_keep_alive_while_idle" => Ok(Self::Http2KeepAliveWhileIdle),
-            "http2_max_frame_size" => Ok(Self::Http2MaxFrameSize),
-            "pool_idle_timeout" => Ok(Self::PoolIdleTimeout),
-            "pool_max_idle_per_host" => Ok(Self::PoolMaxIdlePerHost),
-            "proxy_url" => Ok(Self::ProxyUrl),
-            "proxy_ca_certificate" => Ok(Self::ProxyCaCertificate),
-            "proxy_excludes" => Ok(Self::ProxyExcludes),
-            "randomize_addresses" => Ok(Self::RandomizeAddresses),
-            "read_timeout" => Ok(Self::ReadTimeout),
-            "timeout" => Ok(Self::Timeout),
-            "user_agent" => Ok(Self::UserAgent),
-            _ => Err(super::Error::UnknownConfigurationKey {
-                store: "HTTP",
-                key: s.into(),
-            }),
-        }
-    }
-}
 
 /// Represents a CA certificate provided by the user.
 ///
@@ -319,30 +129,169 @@ impl Certificate {
 }
 
 /// HTTP client configuration for remote object stores
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, ObjectStoreConfig)]
+#[object_store(
+    config_key = ClientConfigKey,
+    error_path = crate::Error::UnknownConfigurationKey,
+    error_store = "HTTP"
+)]
 pub struct ClientOptions {
+    /// Sets the [`User-Agent`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/User-Agent) header to be used by this client
+    ///
+    /// Default is based on the version of this crate
+    #[config(get_via = user_agent_as_string, setter = skip)]
     user_agent: Option<ConfigValue<HeaderValue>>,
     #[cfg(not(target_arch = "wasm32"))]
     root_certificates: Vec<Certificate>,
     content_type_map: HashMap<String, String>,
+    /// Set the default [`Content-Type`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Type) for uploads
     default_content_type: Option<String>,
     default_headers: Option<HeaderMap>,
+    /// Set a proxy URL to use for requests
     proxy_url: Option<String>,
+    /// Set a trusted proxy CA certificate
     proxy_ca_certificate: Option<String>,
+    /// Set a list of hosts to exclude from proxy connections
     proxy_excludes: Option<String>,
+    /// Sets what protocol is allowed.
+    ///
+    /// If `allow_http` is :
+    /// * `false` (default):  Only HTTPS is allowed
+    /// * `true`:  HTTP and HTTPS are allowed
     allow_http: ConfigValue<bool>,
-    allow_insecure: ConfigValue<bool>,
+    /// Allows connections to invalid SSL certificates
+    ///
+    /// If `allow_invalid_certificates` is :
+    /// * `false` (default):  Only valid HTTPS certificates are allowed
+    /// * `true`:  All HTTPS certificates are allowed
+    ///
+    /// <div class="warning">
+    ///
+    /// **Warning**
+    ///
+    /// You should think very carefully before using this method. If
+    /// invalid certificates are trusted, *any* certificate for *any* site
+    /// will be trusted for use. This includes expired certificates. This
+    /// introduces significant vulnerabilities, and should only be used
+    /// as a last resort or for testing
+    ///
+    /// </div>
+    allow_invalid_certificates: ConfigValue<bool>,
+    /// Set timeout for the overall request
+    ///
+    /// The timeout starts from when the request starts connecting until the
+    /// response body has finished. If the request does not complete within the
+    /// timeout, the client returns a timeout error.
+    ///
+    /// Timeout errors are retried, subject to the [`RetryConfig`]
+    ///
+    /// Default is 30 seconds
+    ///
+    /// # See Also
+    /// * [`Self::with_timeout_disabled`] to disable the timeout
+    /// * [`Self::with_connect_timeout`] to set a timeout for the connect phase
+    ///
+    /// [`RetryConfig`]: crate::RetryConfig
     timeout: Option<ConfigValue<Duration>>,
+    /// Set a timeout for only the connect phase of a Client
+    ///
+    /// This is the time allowed for the client to establish a connection
+    /// and if the connection is not established within this time,
+    /// the client returns a timeout error.
+    ///
+    /// Timeout errors are retried, subject to the [`RetryConfig`]
+    ///
+    /// Default is 5 seconds
+    ///
+    /// # See Also
+    /// * [`Self::with_timeout`] to set a timeout for the overall request
+    /// * [`Self::with_connect_timeout_disabled`] to disable the connect timeout
+    ///
+    /// [`RetryConfig`]: crate::RetryConfig
     connect_timeout: Option<ConfigValue<Duration>>,
+    /// Set a read timeout
+    ///
+    /// The timeout applies to each read operation, and resets after a
+    /// successful read. This is useful for detecting stalled connections
+    /// when the size of the response is not known beforehand.
+    ///
+    /// Timeout errors are retried, subject to the [`RetryConfig`]
+    ///
+    /// Default is disabled (no read timeout)
+    ///
+    /// # See Also
+    /// * [`Self::with_read_timeout_disabled`] to disable the read timeout
+    /// * [`Self::with_timeout`] to set a timeout for the overall request
+    /// * [`Self::with_connect_timeout`] to set a timeout for the connect phase
+    ///
+    /// [`RetryConfig`]: crate::RetryConfig
     read_timeout: Option<ConfigValue<Duration>>,
+    /// Set the pool max idle timeout
+    ///
+    /// This is the length of time an idle connection will be kept alive
+    ///
+    /// Default is 90 seconds enforced by reqwest
     pool_idle_timeout: Option<ConfigValue<Duration>>,
+    /// Set the maximum number of idle connections per host
+    ///
+    /// Default is no limit enforced by reqwest
     pool_max_idle_per_host: Option<ConfigValue<usize>>,
+    /// Sets an interval for HTTP/2 Ping frames should be sent to keep a connection alive.
+    ///
+    /// Default is disabled enforced by reqwest
     http2_keep_alive_interval: Option<ConfigValue<Duration>>,
+    /// Sets a timeout for receiving an acknowledgement of the keep-alive ping.
+    ///
+    /// If the ping is not acknowledged within the timeout, the connection will be closed.
+    /// Does nothing if `http2_keep_alive_interval` is disabled.
+    ///
+    /// Default is disabled enforced by reqwest
     http2_keep_alive_timeout: Option<ConfigValue<Duration>>,
+    /// Enable HTTP/2 keep alive pings for idle connections
+    ///
+    /// If disabled, keep-alive pings are only sent while there are open request/response
+    /// streams. If enabled, pings are also sent when no streams are active
+    ///
+    /// Default is disabled enforced by reqwest
+    #[config(setter = skip)]
     http2_keep_alive_while_idle: ConfigValue<bool>,
+    /// Sets the maximum frame size to use for HTTP/2.
+    ///
+    /// Default is currently 16,384 but may change internally to optimize for common uses.
     http2_max_frame_size: Option<ConfigValue<u32>>,
+    /// Only use HTTP/1 connections (default)
+    ///
+    /// # See Also
+    /// * [`Self::with_http2_only`] if you only want to use HTTP/2
+    /// * [`Self::with_allow_http2`] if you want to use HTTP/1 or HTTP/2
+    ///
+    /// <div class="warning">
+    /// HTTP/2 is not used by default. See details [#104](https://github.com/apache/arrow-rs-object-store/issues/104)
+    /// </div>
+    #[config(setter = skip)]
     http1_only: ConfigValue<bool>,
+    /// Only use HTTP/2 connections
+    ///
+    /// # See Also
+    /// * [`Self::with_http1_only`] if you only want to use HTTP/1
+    /// * [`Self::with_allow_http2`] if you want to use HTTP/1 or HTTP/2
+    ///
+    /// <div class="warning">
+    /// HTTP/2 is not used by default. See details [#104](https://github.com/apache/arrow-rs-object-store/issues/104)
+    /// </div>
+    #[config(setter = skip)]
     http2_only: ConfigValue<bool>,
+    /// Randomize order addresses that the DNS resolution yields.
+    ///
+    /// This will spread the connections across more servers.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Warning**
+    ///
+    /// This will override the DNS resolver configured by [`reqwest`].
+    ///
+    /// </div>
     randomize_addresses: ConfigValue<bool>,
 }
 
@@ -366,7 +315,7 @@ impl Default for ClientOptions {
             proxy_ca_certificate: None,
             proxy_excludes: None,
             allow_http: Default::default(),
-            allow_insecure: Default::default(),
+            allow_invalid_certificates: Default::default(),
             timeout: Some(Duration::from_secs(30).into()),
             connect_timeout: Some(Duration::from_secs(5).into()),
             read_timeout: None,
@@ -392,89 +341,13 @@ impl ClientOptions {
         Default::default()
     }
 
-    /// Set an option by key
-    pub fn with_config(mut self, key: ClientConfigKey, value: impl Into<String>) -> Self {
-        match key {
-            ClientConfigKey::AllowHttp => self.allow_http.parse(value),
-            ClientConfigKey::AllowInvalidCertificates => self.allow_insecure.parse(value),
-            ClientConfigKey::ConnectTimeout => {
-                self.connect_timeout = Some(ConfigValue::Deferred(value.into()))
-            }
-            ClientConfigKey::ReadTimeout => {
-                self.read_timeout = Some(ConfigValue::Deferred(value.into()))
-            }
-            ClientConfigKey::DefaultContentType => self.default_content_type = Some(value.into()),
-            ClientConfigKey::Http1Only => self.http1_only.parse(value),
-            ClientConfigKey::Http2Only => self.http2_only.parse(value),
-            ClientConfigKey::Http2KeepAliveInterval => {
-                self.http2_keep_alive_interval = Some(ConfigValue::Deferred(value.into()))
-            }
-            ClientConfigKey::Http2KeepAliveTimeout => {
-                self.http2_keep_alive_timeout = Some(ConfigValue::Deferred(value.into()))
-            }
-            ClientConfigKey::Http2KeepAliveWhileIdle => {
-                self.http2_keep_alive_while_idle.parse(value)
-            }
-            ClientConfigKey::Http2MaxFrameSize => {
-                self.http2_max_frame_size = Some(ConfigValue::Deferred(value.into()))
-            }
-            ClientConfigKey::PoolIdleTimeout => {
-                self.pool_idle_timeout = Some(ConfigValue::Deferred(value.into()))
-            }
-            ClientConfigKey::PoolMaxIdlePerHost => {
-                self.pool_max_idle_per_host = Some(ConfigValue::Deferred(value.into()))
-            }
-            ClientConfigKey::ProxyUrl => self.proxy_url = Some(value.into()),
-            ClientConfigKey::ProxyCaCertificate => self.proxy_ca_certificate = Some(value.into()),
-            ClientConfigKey::ProxyExcludes => self.proxy_excludes = Some(value.into()),
-            ClientConfigKey::RandomizeAddresses => {
-                self.randomize_addresses.parse(value);
-            }
-            ClientConfigKey::Timeout => self.timeout = Some(ConfigValue::Deferred(value.into())),
-            ClientConfigKey::UserAgent => {
-                self.user_agent = Some(ConfigValue::Deferred(value.into()))
-            }
-        }
-        self
-    }
-
-    /// Get an option by key
-    pub fn get_config_value(&self, key: &ClientConfigKey) -> Option<String> {
-        match key {
-            ClientConfigKey::AllowHttp => Some(self.allow_http.to_string()),
-            ClientConfigKey::AllowInvalidCertificates => Some(self.allow_insecure.to_string()),
-            ClientConfigKey::ConnectTimeout => self.connect_timeout.as_ref().map(fmt_duration),
-            ClientConfigKey::ReadTimeout => self.read_timeout.as_ref().map(fmt_duration),
-            ClientConfigKey::DefaultContentType => self.default_content_type.clone(),
-            ClientConfigKey::Http1Only => Some(self.http1_only.to_string()),
-            ClientConfigKey::Http2KeepAliveInterval => {
-                self.http2_keep_alive_interval.as_ref().map(fmt_duration)
-            }
-            ClientConfigKey::Http2KeepAliveTimeout => {
-                self.http2_keep_alive_timeout.as_ref().map(fmt_duration)
-            }
-            ClientConfigKey::Http2KeepAliveWhileIdle => {
-                Some(self.http2_keep_alive_while_idle.to_string())
-            }
-            ClientConfigKey::Http2MaxFrameSize => {
-                self.http2_max_frame_size.as_ref().map(|v| v.to_string())
-            }
-            ClientConfigKey::Http2Only => Some(self.http2_only.to_string()),
-            ClientConfigKey::PoolIdleTimeout => self.pool_idle_timeout.as_ref().map(fmt_duration),
-            ClientConfigKey::PoolMaxIdlePerHost => {
-                self.pool_max_idle_per_host.as_ref().map(|v| v.to_string())
-            }
-            ClientConfigKey::ProxyUrl => self.proxy_url.clone(),
-            ClientConfigKey::ProxyCaCertificate => self.proxy_ca_certificate.clone(),
-            ClientConfigKey::ProxyExcludes => self.proxy_excludes.clone(),
-            ClientConfigKey::RandomizeAddresses => Some(self.randomize_addresses.to_string()),
-            ClientConfigKey::Timeout => self.timeout.as_ref().map(fmt_duration),
-            ClientConfigKey::UserAgent => self
-                .user_agent
-                .as_ref()
-                .and_then(|v| v.get().ok())
-                .and_then(|v| v.to_str().ok().map(|s| s.to_string())),
-        }
+    // `HeaderValue`'s `Display` writes `<bytes>` for non-ASCII; `to_str()`
+    // gives back the original string when possible.
+    fn user_agent_as_string(&self) -> Option<String> {
+        self.user_agent
+            .as_ref()
+            .and_then(|v| v.get().ok())
+            .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
     }
 
     /// Sets the [`User-Agent`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/User-Agent) header to be used by this client
@@ -495,12 +368,6 @@ impl ClientOptions {
         self
     }
 
-    /// Set the default [`Content-Type`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Type) for uploads
-    pub fn with_default_content_type(mut self, mime: impl Into<String>) -> Self {
-        self.default_content_type = Some(mime.into());
-        self
-    }
-
     /// Set the [`Content-Type`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Type) for a given file extension
     pub fn with_content_type_for_suffix(
         mut self,
@@ -514,37 +381,6 @@ impl ClientOptions {
     /// Sets the default headers for every request
     pub fn with_default_headers(mut self, headers: HeaderMap) -> Self {
         self.default_headers = Some(headers);
-        self
-    }
-
-    /// Sets what protocol is allowed.
-    ///
-    /// If `allow_http` is :
-    /// * `false` (default):  Only HTTPS is allowed
-    /// * `true`:  HTTP and HTTPS are allowed
-    pub fn with_allow_http(mut self, allow_http: bool) -> Self {
-        self.allow_http = allow_http.into();
-        self
-    }
-    /// Allows connections to invalid SSL certificates
-    ///
-    /// If `allow_invalid_certificates` is :
-    /// * `false` (default):  Only valid HTTPS certificates are allowed
-    /// * `true`:  All HTTPS certificates are allowed
-    ///
-    /// <div class="warning">
-    ///
-    /// **Warning**
-    ///
-    /// You should think very carefully before using this method. If
-    /// invalid certificates are trusted, *any* certificate for *any* site
-    /// will be trusted for use. This includes expired certificates. This
-    /// introduces significant vulnerabilities, and should only be used
-    /// as a last resort or for testing
-    ///
-    /// </div>
-    pub fn with_allow_invalid_certificates(mut self, allow_insecure: bool) -> Self {
-        self.allow_insecure = allow_insecure.into();
         self
     }
 
@@ -593,70 +429,12 @@ impl ClientOptions {
         self
     }
 
-    /// Set a proxy URL to use for requests
-    pub fn with_proxy_url(mut self, proxy_url: impl Into<String>) -> Self {
-        self.proxy_url = Some(proxy_url.into());
-        self
-    }
-
-    /// Set a trusted proxy CA certificate
-    pub fn with_proxy_ca_certificate(mut self, proxy_ca_certificate: impl Into<String>) -> Self {
-        self.proxy_ca_certificate = Some(proxy_ca_certificate.into());
-        self
-    }
-
-    /// Set a list of hosts to exclude from proxy connections
-    pub fn with_proxy_excludes(mut self, proxy_excludes: impl Into<String>) -> Self {
-        self.proxy_excludes = Some(proxy_excludes.into());
-        self
-    }
-
-    /// Set timeout for the overall request
-    ///
-    /// The timeout starts from when the request starts connecting until the
-    /// response body has finished. If the request does not complete within the
-    /// timeout, the client returns a timeout error.
-    ///
-    /// Timeout errors are retried, subject to the [`RetryConfig`]
-    ///
-    /// Default is 30 seconds
-    ///
-    /// # See Also
-    /// * [`Self::with_timeout_disabled`] to disable the timeout
-    /// * [`Self::with_connect_timeout`] to set a timeout for the connect phase
-    ///
-    /// [`RetryConfig`]: crate::RetryConfig
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(ConfigValue::Parsed(timeout));
-        self
-    }
-
     /// Disables the request timeout
     ///
     /// # See Also
     /// * [`Self::with_timeout`]
     pub fn with_timeout_disabled(mut self) -> Self {
         self.timeout = None;
-        self
-    }
-
-    /// Set a timeout for only the connect phase of a Client
-    ///
-    /// This is the time allowed for the client to establish a connection
-    /// and if the connection is not established within this time,
-    /// the client returns a timeout error.
-    ///
-    /// Timeout errors are retried, subject to the [`RetryConfig`]
-    ///
-    /// Default is 5 seconds
-    ///
-    /// # See Also
-    /// * [`Self::with_timeout`] to set a timeout for the overall request
-    /// * [`Self::with_connect_timeout_disabled`] to disable the connect timeout
-    ///
-    /// [`RetryConfig`]: crate::RetryConfig
-    pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(ConfigValue::Parsed(timeout));
         self
     }
 
@@ -669,70 +447,12 @@ impl ClientOptions {
         self
     }
 
-    /// Set a read timeout
-    ///
-    /// The timeout applies to each read operation, and resets after a
-    /// successful read. This is useful for detecting stalled connections
-    /// when the size of the response is not known beforehand.
-    ///
-    /// Timeout errors are retried, subject to the [`RetryConfig`]
-    ///
-    /// Default is disabled (no read timeout)
-    ///
-    /// # See Also
-    /// * [`Self::with_read_timeout_disabled`] to disable the read timeout
-    /// * [`Self::with_timeout`] to set a timeout for the overall request
-    /// * [`Self::with_connect_timeout`] to set a timeout for the connect phase
-    ///
-    /// [`RetryConfig`]: crate::RetryConfig
-    pub fn with_read_timeout(mut self, timeout: Duration) -> Self {
-        self.read_timeout = Some(ConfigValue::Parsed(timeout));
-        self
-    }
-
     /// Disables the read timeout
     ///
     /// # See Also
     /// * [`Self::with_read_timeout`]
     pub fn with_read_timeout_disabled(mut self) -> Self {
         self.read_timeout = None;
-        self
-    }
-
-    /// Set the pool max idle timeout
-    ///
-    /// This is the length of time an idle connection will be kept alive
-    ///
-    /// Default is 90 seconds enforced by reqwest
-    pub fn with_pool_idle_timeout(mut self, timeout: Duration) -> Self {
-        self.pool_idle_timeout = Some(ConfigValue::Parsed(timeout));
-        self
-    }
-
-    /// Set the maximum number of idle connections per host
-    ///
-    /// Default is no limit enforced by reqwest
-    pub fn with_pool_max_idle_per_host(mut self, max: usize) -> Self {
-        self.pool_max_idle_per_host = Some(max.into());
-        self
-    }
-
-    /// Sets an interval for HTTP/2 Ping frames should be sent to keep a connection alive.
-    ///
-    /// Default is disabled enforced by reqwest
-    pub fn with_http2_keep_alive_interval(mut self, interval: Duration) -> Self {
-        self.http2_keep_alive_interval = Some(ConfigValue::Parsed(interval));
-        self
-    }
-
-    /// Sets a timeout for receiving an acknowledgement of the keep-alive ping.
-    ///
-    /// If the ping is not acknowledged within the timeout, the connection will be closed.
-    /// Does nothing if `http2_keep_alive_interval` is disabled.
-    ///
-    /// Default is disabled enforced by reqwest
-    pub fn with_http2_keep_alive_timeout(mut self, interval: Duration) -> Self {
-        self.http2_keep_alive_timeout = Some(ConfigValue::Parsed(interval));
         self
     }
 
@@ -744,14 +464,6 @@ impl ClientOptions {
     /// Default is disabled enforced by reqwest
     pub fn with_http2_keep_alive_while_idle(mut self) -> Self {
         self.http2_keep_alive_while_idle = true.into();
-        self
-    }
-
-    /// Sets the maximum frame size to use for HTTP/2.
-    ///
-    /// Default is currently 16,384 but may change internally to optimize for common uses.
-    pub fn with_http2_max_frame_size(mut self, sz: u32) -> Self {
-        self.http2_max_frame_size = Some(ConfigValue::Parsed(sz));
         self
     }
 
@@ -870,7 +582,7 @@ impl ClientOptions {
             builder = builder.http2_prior_knowledge()
         }
 
-        if self.allow_insecure.get()? {
+        if self.allow_invalid_certificates.get()? {
             builder = builder.danger_accept_invalid_certs(true)
         }
 
@@ -1054,6 +766,108 @@ pub(crate) use cloud::*;
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use std::str::FromStr;
+
+    /// A small test struct that exercises macro features not covered by
+    /// `ClientOptions`: explicit `key` override, aliases, `setter_name`,
+    /// `get_via`, `setter = skip`, and silent skip of non-inferable fields.
+    #[derive(Debug, Default, ObjectStoreConfig)]
+    #[object_store(
+        config_key = DeriveTestKey,
+        error_path = crate::Error::UnknownConfigurationKey,
+        error_store = "DERIVE_TEST"
+    )]
+    struct DeriveTestOptions {
+        /// Bucket with aliases.
+        #[config(aliases = ["bucket_name"])]
+        bucket: Option<String>,
+        /// Setter name override.
+        #[config(setter_name = in_region)]
+        region: Option<String>,
+        /// Skipped auto-setter; we provide it by hand.
+        #[config(setter = skip)]
+        secret: Option<String>,
+        /// Getter routed through a custom method.
+        #[config(get_via = computed_value)]
+        computed: Option<String>,
+        /// Explicit wire key differs from field name.
+        #[config(key = "x_renamed")]
+        renamed: Option<String>,
+        // Not a config field — type is unrecognized, auto-skipped by inference.
+        _internal: HashMap<String, String>,
+    }
+
+    impl DeriveTestOptions {
+        fn computed_value(&self) -> Option<String> {
+            self.computed.as_deref().map(|s| format!("computed:{s}"))
+        }
+        fn with_secret(mut self, v: impl Into<String>) -> Self {
+            self.secret = Some(v.into());
+            self
+        }
+    }
+
+    #[test]
+    fn derive_from_str_with_aliases_and_override() {
+        assert!(matches!(
+            DeriveTestKey::from_str("bucket"),
+            Ok(DeriveTestKey::Bucket)
+        ));
+        assert!(matches!(
+            DeriveTestKey::from_str("bucket_name"),
+            Ok(DeriveTestKey::Bucket)
+        ));
+        // Default key = field name when `key = "..."` is omitted.
+        assert!(matches!(
+            DeriveTestKey::from_str("region"),
+            Ok(DeriveTestKey::Region)
+        ));
+        // Explicit `key = "x_renamed"` overrides the field name `renamed`.
+        assert!(matches!(
+            DeriveTestKey::from_str("x_renamed"),
+            Ok(DeriveTestKey::Renamed)
+        ));
+        assert!(DeriveTestKey::from_str("renamed").is_err());
+        // Unrecognized field type is silently excluded from the enum.
+        assert!(DeriveTestKey::from_str("_internal").is_err());
+
+        let err = DeriveTestKey::from_str("nope").unwrap_err();
+        match err {
+            super::super::Error::UnknownConfigurationKey { store, key } => {
+                assert_eq!(store, "DERIVE_TEST");
+                assert_eq!(key, "nope");
+            }
+            _ => panic!("wrong error variant"),
+        }
+    }
+
+    #[test]
+    fn derive_setter_name_override() {
+        let opts = DeriveTestOptions::default().in_region("us-east-1");
+        assert_eq!(
+            opts.get_config_value(&DeriveTestKey::Region),
+            Some("us-east-1".into())
+        );
+    }
+
+    #[test]
+    fn derive_setter_skip_does_not_collide_with_hand_written() {
+        // If the macro had generated `with_secret`, this hand-written one would conflict.
+        let opts = DeriveTestOptions::default().with_secret("hush");
+        assert_eq!(
+            opts.get_config_value(&DeriveTestKey::Secret),
+            Some("hush".into())
+        );
+    }
+
+    #[test]
+    fn derive_get_via_routes_through_custom_method() {
+        let opts = DeriveTestOptions::default().with_config(DeriveTestKey::Computed, "x");
+        assert_eq!(
+            opts.get_config_value(&DeriveTestKey::Computed),
+            Some("computed:x".into())
+        );
+    }
 
     #[test]
     fn client_test_config_from_map() {

@@ -1,0 +1,11 @@
+error: duplicate config key `foo`
+  --> tests/compile_fail/duplicate_key.rs:11:20
+   |
+11 |     #[config(key = "foo", strategy = option_string)]
+   |                    ^^^^^
+
+error: previously defined here
+ --> tests/compile_fail/duplicate_key.rs:9:20
+  |
+9 |     #[config(key = "foo", strategy = option_string)]
+  |                    ^^^^^

@@ -1,0 +1,5 @@
+error: `formatter` is only valid with `strategy = option_config_value_deferred`
+ --> tests/compile_fail/formatter_on_wrong_strategy.rs:9:25
+  |
+9 |     #[config(strategy = option_string, formatter = duration)]
+  |                         ^^^^^^^^^^^^^

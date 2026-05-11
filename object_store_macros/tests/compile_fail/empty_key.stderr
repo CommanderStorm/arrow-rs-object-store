@@ -1,0 +1,5 @@
+error: config key must be non-empty
+ --> tests/compile_fail/empty_key.rs:9:20
+  |
+9 |     #[config(key = "", strategy = option_string)]
+  |                    ^^

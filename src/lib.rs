@@ -567,6 +567,9 @@ pub mod throttle;
 pub mod client;
 
 #[cfg(feature = "cloud")]
+pub use object_store_macros::ObjectStoreConfig;
+
+#[cfg(feature = "cloud")]
 pub use client::{
     ClientConfigKey, ClientOptions, CredentialProvider, StaticCredentialProvider,
     backoff::BackoffConfig, retry::RetryConfig,
